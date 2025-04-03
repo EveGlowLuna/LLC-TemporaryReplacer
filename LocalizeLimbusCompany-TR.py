@@ -161,8 +161,6 @@ class MainWindow(QMainWindow):
         self.game_path = ""
         self.download_thread = None
         self._is_downloading = False
-        if not self.font_path:
-            self.font_path = "SourceHanSansCN-Normal.otf"
         
     def setup_ui(self):
         """设置UI控件"""
@@ -333,7 +331,7 @@ class MainWindow(QMainWindow):
         self.logger.info("开始卸载本地化内容...")
         
         # 删除本地化文件夹
-        target_path = os.path.join(self.game_path, "LimbusCompany_Data", "Lang", "LLC-CN")
+        target_path = os.path.join(self.game_path, "LimbusCompany_Data", "Lang", "LLC_CN")
         if os.path.exists(target_path):
             try:
                 shutil.rmtree(target_path)
@@ -371,8 +369,8 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(0)
         
         # 启动下载线程
-        url = "https://download.zeroasso.top/files/Resource/LimbusLocalize_Resource_latest.7z"
-        save_path = os.path.join(os.getcwd(), "LimbusLocalize_Resource_latest.7z")
+        url = "https://download.zeroasso.top/files/0404Temp.zip"
+        save_path = os.path.join(os.getcwd(), "0404Temp.zip")
         
         self.download_thread = DownloadThread(url, save_path, self.logger)
         self.download_thread.progress_updated.connect(self.update_progress)
@@ -411,21 +409,22 @@ class MainWindow(QMainWindow):
     def post_download_operations(self, archive_path):
         """下载后处理操作"""
         try:
-            target_path = os.path.join(self.game_path, "LimbusCompany_Data", "Lang", "LLC-CN")
+            target_path = os.path.join(self.game_path, "LimbusCompany_Data", "Lang", "LLC_CN")
             
             # 创建目标目录
             if not os.path.exists(target_path):
                 os.makedirs(target_path)
                 
-            # 解压资源文件 - 使用更可靠的方法
+            # 解压资源文件
             self.logger.info("开始解压资源文件...")
-            with py7zr.SevenZipFile(archive_path, mode='r') as archive:
+            import zipfile
+            with zipfile.ZipFile(archive_path, 'r') as archive:
                 # 先提取所有文件到临时目录
                 temp_dir = os.path.join(os.getcwd(), "temp_extract")
                 archive.extractall(path=temp_dir)
                 
                 # 找到源目录
-                source_path = os.path.join(temp_dir, "BepInEx", "plugins", "LLC", "Localize", "CN")
+                source_path = os.path.join(temp_dir, "LimbusCompany_Data", "Lang", "LLC_CN")
                 
                 if os.path.exists(source_path):
                     # 复制文件到目标目录
@@ -449,7 +448,7 @@ class MainWindow(QMainWindow):
                 shutil.rmtree(temp_dir)
             
             # 更新配置文件
-            json_data = {"lang": "LLC-CN"}
+            json_data = {"lang": "LLC_CN"}
             json_target_path = os.path.join(self.game_path, "LimbusCompany_Data", "Lang", "config.json")
             
             if os.path.exists(json_target_path):
@@ -465,14 +464,15 @@ class MainWindow(QMainWindow):
                 self.logger.info("已创建config.json配置文件")
             
             # 处理字体文件
-            if self.font_path:
+            if self.font_path and self.font_path != "SourceHanSansCN-Normal.otf":
                 font_target_path = os.path.join(target_path, "Font")
-                if not os.path.exists(font_target_path):
-                    os.makedirs(font_target_path)
+                if os.path.exists(font_target_path):
+                    shutil.rmtree(font_target_path)
+                os.makedirs(font_target_path)
                 shutil.copy2(self.font_path, font_target_path)
                 self.logger.info("已复制字体文件到游戏目录")
             else:
-                self.logger.info("未设置字体文件，跳过字体安装")
+                self.logger.info("未设置字体文件或使用默认字体，跳过字体安装")
                 
             self.logger.info("安装完成！")
             self.show_info("安装完成", "本地化内容已成功安装！")
@@ -534,6 +534,7 @@ class LoggingHandler(logging.Handler):
         """发送日志记录"""
         msg = self.format(record)
         self.redirector.append_text(msg)
+
 
 def main():
     """程序入口函数"""
