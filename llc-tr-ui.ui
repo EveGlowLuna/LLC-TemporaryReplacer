@@ -40,7 +40,7 @@
        </font>
       </property>
       <property name="text">
-       <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; color:#ff0000;&quot;&gt;欢迎使用LLC-TemporaryReplacer&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+       <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; color:#ff0000;&quot;&gt;LLC-TemporaryReplacer v1.1&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
       </property>
      </widget>
     </item>
@@ -334,7 +334,7 @@
                  </font>
                 </property>
                 <property name="text">
-                 <string>选择的字体：思源黑体</string>
+                 <string>选择的字体：默认（无）</string>
                 </property>
                </widget>
               </item>
@@ -410,17 +410,16 @@ li.checked::marker { content: &quot;\2612&quot;; }
            </font>
           </property>
           <property name="text">
-           <string>&lt;span style=&quot;font-size:20pt;&quot;&gt;LLC-TemporaryReplacer&lt;/span&gt;
+           <string>&lt;span style=&quot;font-size:20pt;&quot;&gt;LLC-TemporaryReplacer Version 1.2&lt;/span&gt;
 &lt;br/&gt;
+&lt;a href=&quot;https://github.com/EveGlowLuna/LLC-TemporaryReplacer&quot;&gt;项目地址（点击进入）&lt;/a&gt;
+&lt;br/&gt;
+
 &lt;span style=&quot;font-size:8pt;color:red;&quot;&gt;IM GOING TO MAKE IT HAPPEN EVEN IF NO ONE USES IT!&lt;/span&gt;
 &lt;br/&gt;
 &lt;span style=&quot;font-size:14pt;&quot;&gt;脚本作者：EveGlowLuna（YangChen114514）&lt;/span&gt;
 &lt;br/&gt;
-&lt;span style=&quot;font-size:14pt;&quot;&gt;本程序将仅在LLC官方无时间完成且LLC工具无法使用时开始维护，以一个正式版发布为终止。&lt;/span&gt;
-&lt;br/&gt;
-&lt;span style=&quot;font-size:2pt;&quot;&gt;你以为直播问你的只是说说而已？当然不是。所以为什么不理我？（&lt;/span&gt;
-&lt;br/&gt;
-&lt;span style=&quot;font-size:10pt;&quot;&gt;以上消息没有任何实质性意义，请不要翻看并深究:D&lt;/span&gt;</string>
+&lt;span style=&quot;font-size:14pt;&quot;&gt;本程序将仅在LLC官方无时间完成且LLC工具无法使用时开始维护，以一个正式版发布为终止。&lt;/span&gt;</string>
           </property>
           <property name="wordWrap">
            <bool>true</bool>
