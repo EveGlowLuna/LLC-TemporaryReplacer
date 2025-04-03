@@ -1,0 +1,1 @@
+pyinstaller --noconsole LocalizeLimbusCompany-TR.py
