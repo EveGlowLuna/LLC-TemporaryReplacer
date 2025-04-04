@@ -11,7 +11,6 @@
 - 提供完整的安装和卸载功能
 
 作者: YangChen114514
-重构版
 """
 
 import sys
@@ -28,7 +27,7 @@ import py7zr
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QFileDialog,
     QPushButton, QLabel, QTextEdit, QProgressBar,
-    QMessageBox
+    QMessageBox, QCheckBox
 )
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtCore import (
@@ -41,6 +40,7 @@ class DownloadThread(QThread):
     """下载线程类
     
     使用QThread处理文件下载，支持进度回调和取消操作。
+    提供了重试机制和备用URL支持，增强下载稳定性。
     
     信号:
         progress_updated: 下载进度更新信号
@@ -52,24 +52,30 @@ class DownloadThread(QThread):
     download_finished = Signal(str)
     download_error = Signal(str)
     
-    def __init__(self, url, save_path, logger):
+    def __init__(self, url, save_path, logger, backup_url=None):
         """初始化下载线程
         
         Args:
             url: 下载文件的URL
             save_path: 保存路径
             logger: 日志记录器实例
+            backup_url: 备用下载URL，当主URL失败时使用
         """
         super().__init__()
         self.url = url
+        self.backup_url = backup_url
         self.save_path = save_path
         self.logger = logger
         self._stop_flag = False
         self._mutex = QMutex()
         self._condition = QWaitCondition()
+        self.max_retries = 3  # 最大重试次数
         
     def stop(self):
-        """停止下载"""
+        """停止下载
+        
+        设置停止标志并唤醒等待中的线程。
+        """
         with QMutexLocker(self._mutex):
             self._stop_flag = True
             self._condition.wakeAll()
@@ -78,54 +84,107 @@ class DownloadThread(QThread):
         """执行下载操作
         
         使用requests库下载文件，支持进度回调和取消操作。
+        实现了重试机制和备用URL切换，提高下载成功率。
         """
-        try:
-            # 设置超时为30秒
-            response = requests.get(self.url, stream=True, timeout=(5, 30))
-            response.raise_for_status()
+        retry_count = 0
+        retry_delay = 2  # 重试间隔秒数
+        current_url = self.url
+        used_backup = False
+        
+        while retry_count < self.max_retries:
+            try:
+                # 检查是否需要切换到备用URL
+                if retry_count > 0 and self.backup_url and not used_backup:
+                    current_url = self.backup_url
+                    self.logger.info(f"切换到备用下载链接: jsdelivr.net")
+                    used_backup = True
+                
+                # 设置请求头，模拟浏览器行为
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                }
+                
+                # 设置超时
+                response = requests.get(
+                    current_url, 
+                    stream=True, 
+                    timeout=(5, 60),  # 连接超时5秒，读取超时60秒
+                    headers=headers
+                )
+                response.raise_for_status()
 
-            total_size = int(response.headers.get('content-length', 0))
-            block_size = 1024  # 1 KB
-            downloaded_size = 0
+                total_size = int(response.headers.get('content-length', 0))
+                block_size = 1024  # 1 KB
+                downloaded_size = 0
 
-            self.logger.info(f"开始下载文件: {os.path.basename(self.save_path)}")
-            self.logger.info(f"文件大小: {total_size / (1024*1024):.2f} MB")
+                self.logger.info(f"开始下载文件: {os.path.basename(self.save_path)}")
+                self.logger.info(f"文件大小: {total_size / (1024*1024):.2f} MB")
 
-            with open(self.save_path, 'wb') as file:
-                for data in response.iter_content(block_size):
-                    # 检查停止标志
-                    with QMutexLocker(self._mutex):
-                        if self._stop_flag:
-                            self.logger.info("下载已取消")
-                            self.download_error.emit("下载已取消")
-                            return
-                            
-                    if data:
-                        file.write(data)
-                        downloaded_size += len(data)
-                        if total_size > 0:
-                            progress = int((downloaded_size / total_size) * 100)
-                            self.progress_updated.emit(progress)
-                            
-            self.download_finished.emit(self.save_path)
-            
-        except requests.RequestException as e:
-            error_msg = f"下载失败: {str(e)}"
-            self.logger.error(error_msg)
-            self.download_error.emit(error_msg)
-        except Exception as e:
-            error_msg = f"下载过程中发生错误: {str(e)}"
-            self.logger.error(error_msg)
-            self.download_error.emit(error_msg)
+                with open(self.save_path, 'wb') as file:
+                    for data in response.iter_content(block_size):
+                        # 检查停止标志
+                        with QMutexLocker(self._mutex):
+                            if self._stop_flag:
+                                self.logger.info("下载已取消")
+                                self.download_error.emit("下载已取消")
+                                return
+                                
+                        if data:
+                            file.write(data)
+                            downloaded_size += len(data)
+                            if total_size > 0:
+                                progress = int((downloaded_size / total_size) * 100)
+                                self.progress_updated.emit(progress)
+                                
+                self.download_finished.emit(self.save_path)
+                return  # 下载成功，退出循环
+                
+            except requests.exceptions.Timeout as e:
+                retry_count += 1
+                if retry_count >= self.max_retries:
+                    error_msg = f"下载超时，请检查网络连接: {str(e)}"
+                    self.logger.error(error_msg)
+                    self.download_error.emit(error_msg)
+                    return
+                self.logger.warning(f"下载超时，{retry_delay}秒后重试...({retry_count}/{self.max_retries})")
+                import time
+                time.sleep(retry_delay)
+                
+            except requests.exceptions.ConnectionError as e:
+                retry_count += 1
+                if retry_count >= self.max_retries:
+                    error_msg = f"网络连接错误: {str(e)}"
+                    self.logger.error(error_msg)
+                    self.download_error.emit(error_msg)
+                    return
+                self.logger.warning(f"连接错误，{retry_delay}秒后重试...({retry_count}/{self.max_retries})")
+                import time
+                time.sleep(retry_delay)
+                
+            except requests.RequestException as e:
+                error_msg = f"下载失败: {str(e)}"
+                self.logger.error(error_msg)
+                self.download_error.emit(error_msg)
+                return
+                
+            except Exception as e:
+                error_msg = f"下载过程中发生错误: {str(e)}"
+                self.logger.error(error_msg)
+                self.download_error.emit(error_msg)
+                return
 
 class MainWindow(QMainWindow):
     """主窗口类
     
     负责处理UI初始化、事件绑定和主要业务逻辑的实现。
+    提供完整的本地化工具功能，包括字体选择、游戏路径设置、安装和卸载功能。
     """
     
     def __init__(self):
-        """初始化主窗口"""
+        """初始化主窗口
+        
+        设置UI界面、初始化变量、绑定事件处理函数，并尝试加载已保存的配置。
+        """
         super().__init__()
         self._ui_mutex = QMutex()
         self._init_ui()
@@ -137,19 +196,23 @@ class MainWindow(QMainWindow):
         self.ui.show()
         
     def _init_ui(self):
-        """初始化UI界面"""
+        """初始化UI界面
+        
+        加载UI文件并创建主界面，处理不同环境下的路径差异。
+        """
         # 获取UI文件的路径
         if getattr(sys, 'frozen', False):
             # 如果是打包后的可执行文件
-            base_path = sys._MEIPASS
+            base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
         else:
             # 如果是开发环境
             base_path = os.path.dirname(os.path.abspath(__file__))
             
+        # 加载主界面
         ui_path = os.path.join(base_path, "llc-tr-ui.ui")
         ui_file = QFile(ui_path)
         
-        if not ui_file.open(QIODevice.ReadOnly):
+        if not ui_file.open(QIODevice.OpenModeFlag.ReadOnly):
             error_msg = f"无法打开UI文件 {ui_file.fileName()}: {ui_file.errorString()}"
             QMessageBox.critical(self, "错误", error_msg)
             sys.exit(1)
@@ -166,46 +229,21 @@ class MainWindow(QMainWindow):
         self.ui.setWindowTitle("Limbus Company临时本地化工具")
         
     def _init_variables(self):
-        """初始化成员变量"""
-        self.font_path = ""
+        """初始化成员变量
+        
+        设置程序运行所需的各种状态变量和配置变量的初始值。
+        """
         self.game_path = ""
         self.download_thread = None
         self._is_downloading = False
         self.install_config = None
-        
-    def download_install_config(self):
-        """下载安装配置文件"""
-        try:
-            self.logger.info("正在获取最新安装配置信息...")
-            config_url = "https://raw.githubusercontent.com/EveGlowLuna/LLC-TemporaryReplacer/main/install_info.json"
-            response = requests.get(config_url, timeout=10)
-            response.raise_for_status()
-            self.install_config = response.json()
-            self.logger.info("成功获取安装配置信息")
-            return True
-        except requests.exceptions.ConnectionError as e:
-            error_msg = "网络连接错误，无法获取安装配置"
-            self.show_error("更新失败", error_msg)
-            return False
-        except requests.exceptions.Timeout as e:
-            error_msg = "获取安装配置超时，请检查网络连接"
-            self.show_error("更新失败", error_msg)
-            return False
-        except requests.exceptions.RequestException as e:
-            error_msg = f"获取安装配置时发生错误: {str(e)}"
-            self.show_error("更新失败", error_msg)
-            return False
-        except json.JSONDecodeError as e:
-            error_msg = "安装配置文件格式错误"
-            self.show_error("更新失败", error_msg)
-            return False
-        except Exception as e:
-            error_msg = f"获取安装配置时发生未知错误: {str(e)}"
-            self.show_error("更新失败", error_msg)
-            return False
+        self.use_mirror = False
         
     def setup_ui(self):
-        """设置UI控件"""
+        """设置UI控件
+        
+        查找并初始化界面上的各个控件，设置日志系统。
+        """
         # 字体选择相关控件
         self.font_label = self.ui.findChild(QLabel, "FontLabel")
         self.choose_font_btn = self.ui.findChild(QPushButton, "ChooseFontBtn_2")
@@ -225,6 +263,9 @@ class MainWindow(QMainWindow):
         # 进度条
         self.progress_bar = self.ui.findChild(QProgressBar, "progressBar")
         
+        # 镜像站设置
+        self.use_mirror_checkbox = self.ui.findChild(QCheckBox, "use_mirror")
+        
         # 初始化日志系统
         self.log_redirector = LogRedirector(self.log_text)
         sys.stdout = self.log_redirector
@@ -232,7 +273,10 @@ class MainWindow(QMainWindow):
         self.logger = self.log_redirector.logger
         
     def setup_events(self):
-        """设置事件处理"""
+        """设置事件处理
+        
+        将UI控件的事件与相应的处理函数绑定。
+        """
         # 字体选择相关事件
         self.choose_font_btn.clicked.connect(self.choose_font)
         self.reset_btn.clicked.connect(self.reset_font)
@@ -245,11 +289,18 @@ class MainWindow(QMainWindow):
         self.install_btn.clicked.connect(self.start_installation)
         self.uninstall_btn.clicked.connect(self.uninstall)
         
+        # 镜像站设置事件
+        self.use_mirror_checkbox.stateChanged.connect(self.on_mirror_changed)
+        
     def load_path_record(self):
-        """加载路径记录"""
+        """加载配置文件
+        
+        从config.json文件中加载配置信息，包括游戏路径、字体路径和镜像站设置。
+        如果配置文件不存在或读取失败，将使用默认设置。
+        """
         try:
-            if os.path.exists('path-record.json'):
-                with open('path-record.json', 'r', encoding='utf-8') as f:
+            if os.path.exists('config.json'):
+                with open('config.json', 'r', encoding='utf-8') as f:
                     paths = json.load(f)
                     
                     # 只处理非空的game_path
@@ -267,28 +318,50 @@ class MainWindow(QMainWindow):
                             self.font_label.setText(f"选择的字体: {os.path.basename(self.font_path)}")
                         else:
                             self.show_error('提示', '保存的字体文件已不存在，请重新选择')
+                    
+                    # 加载镜像站配置
+                    if 'use-mirror' in paths:
+                        self.use_mirror = paths['use-mirror']
+                        self.use_mirror_checkbox.setChecked(self.use_mirror)
                             
         except Exception as e:
-            self.logger.error(f'加载路径记录失败: {str(e)}')
+            self.logger.error(f'加载配置文件失败: {str(e)}')
             
     def save_path_record(self):
-        """保存路径记录"""
+        """保存配置文件
+        
+        将当前的配置信息保存到config.json文件中，包括游戏路径、字体路径和镜像站设置。
+        """
         try:
             paths = {
                 'game_path': self.game_path if self.game_path else '',
-                'font_path': self.font_path if self.font_path else ''
+                'font_path': self.font_path if self.font_path else '',
+                'use-mirror': self.use_mirror
             }
-            with open('path-record.json', 'w', encoding='utf-8') as f:
+            with open('config.json', 'w', encoding='utf-8') as f:
                 json.dump(paths, f, ensure_ascii=False, indent=4)
         except Exception as e:
-            self.logger.error(f'保存路径记录失败: {str(e)}')
+            self.logger.error(f'保存配置文件失败: {str(e)}')
             
     def validate_game_path(self, path):
-        """验证游戏目录"""
+        """验证游戏目录
+        
+        检查指定路径是否为有效的游戏安装目录，通过查找LimbusCompany.exe文件来验证。
+        
+        Args:
+            path: 要验证的游戏目录路径
+            
+        Returns:
+            bool: 如果是有效的游戏目录返回True，否则返回False
+        """
         return os.path.exists(os.path.join(path, 'LimbusCompany.exe'))
         
     def detect_steam_path(self):
-        """检测Steam默认安装路径"""
+        """检测Steam默认安装路径
+        
+        自动检测Steam默认安装路径下的游戏目录，如果找到则提示用户是否使用该路径。
+        仅在未设置游戏路径时执行检测。
+        """
         if self.game_path:  # 如果已经有游戏路径，就不需要检测
             return
             
@@ -306,17 +379,35 @@ class MainWindow(QMainWindow):
                 self.save_path_record()
                 
     def show_error(self, title, message):
-        """显示错误信息"""
+        """显示错误信息
+        
+        显示错误对话框并记录错误日志。
+        
+        Args:
+            title: 错误对话框标题
+            message: 错误信息内容
+        """
         QMessageBox.critical(self, title, message)
         self.logger.error(message)
         
     def show_info(self, title, message):
-        """显示信息提示"""
+        """显示信息提示
+        
+        显示信息对话框并记录信息日志。
+        
+        Args:
+            title: 信息对话框标题
+            message: 信息内容
+        """
         QMessageBox.information(self, title, message)
         self.logger.info(message)
         
     def choose_font(self):
-        """选择字体文件"""
+        """选择字体文件
+        
+        打开文件选择对话框，让用户选择自定义字体文件(.ttf或.otf)。
+        选择后更新界面显示并保存配置。
+        """
         font_path, _ = QFileDialog.getOpenFileName(
             self.ui,
             "选择字体文件",
@@ -324,10 +415,10 @@ class MainWindow(QMainWindow):
             "字体文件 (*.ttf *.otf)"
         )
         if not font_path:
-            self.font_path = "SourceHanSansCN-Normal.otf"
-            self.font_label.setText("选择的字体: 思源黑体")
+            self.font_path = ""
+            self.font_label.setText("未选择字体")
             self.save_path_record()
-            self.logger.info("已选择默认字体: 思源黑体")
+            self.logger.info("未选择字体")
         else:
             self.font_path = font_path
             filename = os.path.basename(font_path)
@@ -336,14 +427,21 @@ class MainWindow(QMainWindow):
             self.logger.info(f"已选择字体文件: {filename}")
             
     def reset_font(self):
-        """重置字体选择"""
-        self.font_path = "SourceHanSansCN-Normal.otf"
-        self.font_label.setText("选择的字体: 思源黑体")
+        """重置字体选择
+        
+        清除当前选择的字体，恢复到默认状态。
+        """
+        self.font_path = ""
+        self.font_label.setText("未选择字体")
         self.save_path_record()
         self.logger.info("已重置字体选择")
         
     def choose_game_path(self):
-        """选择游戏安装目录"""
+        """选择游戏安装目录
+        
+        打开目录选择对话框，让用户选择游戏安装目录。
+        选择后会验证目录有效性，更新界面显示并保存配置。
+        """
         game_path = QFileDialog.getExistingDirectory(
             self.ui,
             "选择游戏目录",
@@ -359,16 +457,41 @@ class MainWindow(QMainWindow):
                 self.show_error("错误", "选择的目录不是游戏根目录，请确保目录中包含LimbusCompany.exe")
                 
     def on_path_changed(self):
-        """游戏路径文本变更处理"""
+        """游戏路径文本变更处理
+        
+        当用户在文本框中手动编辑游戏路径时，验证并更新游戏路径设置。
+        """
         path = self.path_edit.toPlainText()
         if path and self.validate_game_path(path):
             self.game_path = path
             
-    def uninstall(self):
-        """卸载本地化内容"""
+    def on_mirror_changed(self, state):
+        """镜像站设置变更处理
+        
+        当用户切换镜像站设置时，更新配置并保存。
+        
+        Args:
+            state: 复选框状态值，Qt.Checked=2表示选中
+        """
+        self.use_mirror = (state == 2)  # Qt.Checked = 2
+        self.logger.info(f"镜像站设置已{'启用' if self.use_mirror else '禁用'}")
+        self.save_path_record()
+            
+    def uninstall(self, show_message=True):
+        """卸载本地化内容
+        
+        移除游戏目录中的本地化文件和配置，恢复游戏到原始状态。
+        包括删除本地化文件夹和配置文件。
+        
+        Args:
+            show_message: 是否显示卸载完成的提示信息，默认为True
+            
+        Returns:
+            bool: 卸载成功返回True，失败返回False
+        """
         if not self.game_path:
             self.logger.error("未选择游戏目录！")
-            return
+            return False
             
         self.logger.info("开始卸载本地化内容...")
         
@@ -380,23 +503,102 @@ class MainWindow(QMainWindow):
                 self.logger.info("已删除本地化文件夹")
             except Exception as e:
                 self.show_error("错误", f"删除本地化文件夹失败: {str(e)}")
-                return
+                return False
         
         # 删除配置文件
         json_target_path = os.path.join(self.game_path, "LimbusCompany_Data", "Lang", "config.json")
         if os.path.exists(json_target_path):
             try:
                 os.remove(json_target_path)
-                self.logger.info("已删除config.json")
+                self.logger.info("已删除配置文件")
             except Exception as e:
-                self.show_error("错误", f"删除config.json失败: {str(e)}")
-                return
-        
+                if show_message:
+                    self.show_error("错误", f"删除配置文件失败: {str(e)}")
+                return False
+                
         self.logger.info("卸载完成")
-        self.show_info("卸载完成", "本地化内容已成功卸载！")
+        if show_message:
+            self.show_info("成功", "本地化内容已成功卸载！")
+        return True
+        
+    def download_install_config(self):
+        """下载安装配置文件
+        
+        从GitHub仓库获取最新的安装配置信息，使用jsdelivr镜像站加速下载。
+        
+        Returns:
+            bool: 下载成功返回True，失败返回False
+        """
+        max_retries = 3  # 最大重试次数
+        retry_count = 0
+        retry_delay = 2  # 重试间隔秒数
+        
+        while retry_count < max_retries:
+            try:
+                self.logger.info(f"正在获取最新安装配置信息...{'' if retry_count == 0 else f'(第{retry_count+1}次尝试)'}")
+                config_url = "https://fastly.jsdelivr.net/gh/EveGlowLuna/LLC-TemporaryReplacer@main/install_info.json"
+                self.logger.info("使用镜像站下载配置: jsdelivr.net")
+                
+                # 增加超时时间，connect=5秒，read=30秒
+                response = requests.get(
+                    config_url, 
+                    timeout=(5, 30),
+                    headers={
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                    }
+                )
+                response.raise_for_status()
+                self.install_config = response.json()
+                self.logger.info("成功获取安装配置信息")
+                return True
+                
+            except requests.exceptions.Timeout as e:
+                retry_count += 1
+                if retry_count >= max_retries:
+                    error_msg = "获取安装配置超时，请检查网络连接"
+                    self.logger.error(f"超时错误: {str(e)}")
+                    self.show_error("更新失败", error_msg)
+                    return False
+                self.logger.warning(f"请求超时，{retry_delay}秒后重试...({retry_count}/{max_retries})")
+                import time
+                time.sleep(retry_delay)
+                
+            except requests.exceptions.ConnectionError as e:
+                retry_count += 1
+                if retry_count >= max_retries:
+                    error_msg = "网络连接错误，无法获取安装配置"
+                    self.logger.error(f"连接错误: {str(e)}")
+                    self.show_error("更新失败", error_msg)
+                    return False
+                self.logger.warning(f"连接错误，{retry_delay}秒后重试...({retry_count}/{max_retries})")
+                import time
+                time.sleep(retry_delay)
+                
+            except requests.exceptions.RequestException as e:
+                error_msg = f"获取安装配置时发生错误: {str(e)}"
+                self.logger.error(error_msg)
+                self.show_error("更新失败", error_msg)
+                return False
+                
+            except json.JSONDecodeError as e:
+                error_msg = "安装配置文件格式错误"
+                self.logger.error(f"JSON解析错误: {str(e)}")
+                self.show_error("更新失败", error_msg)
+                return False
+                
+            except Exception as e:
+                error_msg = f"获取安装配置时发生未知错误: {str(e)}"
+                self.logger.error(error_msg)
+                self.show_error("更新失败", error_msg)
+                return False
+                
         
     def start_installation(self):
-        """开始安装过程"""
+        """开始安装过程
+        
+        根据用户选择的版本类型执行相应的安装流程。
+        首先执行卸载操作，然后根据版本类型执行安装。
+        """
         if self._is_downloading:
             self.stop_installation()
             return
@@ -404,11 +606,15 @@ class MainWindow(QMainWindow):
         if not self.game_path:
             self.show_error("错误", "未选择游戏目录！")
             return
-            
+
+        # 先执行卸载操作
+        if not self.uninstall():
+            return
+        
         # 下载安装配置
         if not self.download_install_config():
             return
-            
+                
         # 检查并清理临时目录
         temp_dir = os.path.join(os.getcwd(), "temp_extract")
         if os.path.exists(temp_dir):
@@ -418,18 +624,19 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 self.show_error("错误", f"清理临时目录失败: {str(e)}")
                 return
-            
+                
         self.logger.info("开始安装...")
         self._is_downloading = True
         self.install_btn.setText("停止")
         self.progress_bar.setValue(0)
-        
+            
         # 启动下载线程
         url = self.install_config.get('link')
+                
         file_name = self.install_config.get('file')
         save_path = os.path.join(os.getcwd(), file_name)
-        
-        self.download_thread = DownloadThread(url, save_path, self.logger)
+            
+        self.download_thread = DownloadThread(url, save_path, self.logger, backup_url)
         self.download_thread.progress_updated.connect(self.update_progress)
         self.download_thread.download_finished.connect(self.on_download_finished)
         self.download_thread.download_error.connect(self.on_download_error)
@@ -467,8 +674,8 @@ class MainWindow(QMainWindow):
         """下载后处理操作"""
         try:
             target_path = os.path.join(self.game_path, "LimbusCompany_Data", "Lang", "LLC_CN")
-            
-            # 创建目标目录
+                
+        # 创建目标目录
             if not os.path.exists(target_path):
                 os.makedirs(target_path)
                 
@@ -511,9 +718,9 @@ class MainWindow(QMainWindow):
                 self.logger.info("资源文件解压完成")
             else:
                 raise Exception("压缩包中找不到预期的目录结构")
-                
-                # 清理临时目录
-                shutil.rmtree(temp_dir)
+            
+            # 清理临时目录
+            shutil.rmtree(temp_dir)
             
             # 更新配置文件
             json_data = {"lang": "LLC_CN"}
