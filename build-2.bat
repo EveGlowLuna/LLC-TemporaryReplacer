@@ -1,0 +1,1 @@
+pyinstaller --noconsole --onefile --add-data "llc-installer.ui;." --add-data "LocalizeLimbusCompany-TR.zip;." --version-file version.txt installer.py

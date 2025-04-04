@@ -166,12 +166,6 @@ class DownloadThread(QThread):
                 self.logger.error(error_msg)
                 self.download_error.emit(error_msg)
                 return
-                
-            except Exception as e:
-                error_msg = f"下载过程中发生错误: {str(e)}"
-                self.logger.error(error_msg)
-                self.download_error.emit(error_msg)
-                return
 
 class MainWindow(QMainWindow):
     """主窗口类
@@ -234,6 +228,7 @@ class MainWindow(QMainWindow):
         设置程序运行所需的各种状态变量和配置变量的初始值。
         """
         self.game_path = ""
+        self.name = ""
         self.download_thread = None
         self._is_downloading = False
         self.install_config = None
@@ -496,7 +491,7 @@ class MainWindow(QMainWindow):
         self.logger.info("开始卸载本地化内容...")
         
         # 删除本地化文件夹
-        target_path = os.path.join(self.game_path, "LimbusCompany_Data", "Lang", "LLC_CN")
+        target_path = os.path.join(self.game_path, "LimbusCompany_Data", "Lang", self.name)
         if os.path.exists(target_path):
             try:
                 shutil.rmtree(target_path)
@@ -536,8 +531,8 @@ class MainWindow(QMainWindow):
         while retry_count < max_retries:
             try:
                 self.logger.info(f"正在获取最新安装配置信息...{'' if retry_count == 0 else f'(第{retry_count+1}次尝试)'}")
-                config_url = "https://fastly.jsdelivr.net/gh/EveGlowLuna/LLC-TemporaryReplacer@main/install_info.json"
-                self.logger.info("使用镜像站下载配置: jsdelivr.net")
+                config_url = "https://gh-proxy.com/raw.gitmirror.com/EveGlowLuna/LLC-TemporaryReplacer/main/install_info.json"
+                self.logger.info("使用镜像站下载配置。")
                 
                 # 增加超时时间，connect=5秒，read=30秒
                 response = requests.get(
@@ -549,7 +544,13 @@ class MainWindow(QMainWindow):
                 )
                 response.raise_for_status()
                 self.install_config = response.json()
-                self.logger.info("成功获取安装配置信息")
+                self.name = self.install_config.get('name', '')
+                if not self.name:
+                    error_msg = "安装配置中缺少name字段"
+                    self.logger.error(error_msg)
+                    self.show_error("更新失败", error_msg)
+                    return False
+                self.logger.info(f"成功获取安装配置信息，本地化名称: {self.name}")
                 return True
                 
             except requests.exceptions.Timeout as e:
@@ -574,7 +575,7 @@ class MainWindow(QMainWindow):
                 import time
                 time.sleep(retry_delay)
                 
-            except requests.exceptions.RequestException as e:
+            except requests.RequestException as e:
                 error_msg = f"获取安装配置时发生错误: {str(e)}"
                 self.logger.error(error_msg)
                 self.show_error("更新失败", error_msg)
@@ -608,7 +609,7 @@ class MainWindow(QMainWindow):
             return
 
         # 先执行卸载操作
-        if not self.uninstall():
+        if not self.uninstall(False):
             return
         
         # 下载安装配置
@@ -634,9 +635,11 @@ class MainWindow(QMainWindow):
         url = self.install_config.get('link')
                 
         file_name = self.install_config.get('file')
+        
         save_path = os.path.join(os.getcwd(), file_name)
+
             
-        self.download_thread = DownloadThread(url, save_path, self.logger, backup_url)
+        self.download_thread = DownloadThread(url, save_path, self.logger)
         self.download_thread.progress_updated.connect(self.update_progress)
         self.download_thread.download_finished.connect(self.on_download_finished)
         self.download_thread.download_error.connect(self.on_download_error)
@@ -673,7 +676,7 @@ class MainWindow(QMainWindow):
     def post_download_operations(self, archive_path):
         """下载后处理操作"""
         try:
-            target_path = os.path.join(self.game_path, "LimbusCompany_Data", "Lang", "LLC_CN")
+            target_path = os.path.join(self.game_path, "LimbusCompany_Data", "Lang", self.name)
                 
         # 创建目标目录
             if not os.path.exists(target_path):
@@ -722,8 +725,9 @@ class MainWindow(QMainWindow):
             # 清理临时目录
             shutil.rmtree(temp_dir)
             
+            
             # 更新配置文件
-            json_data = {"lang": "LLC_CN"}
+            json_data = {"lang": self.name}
             json_target_path = os.path.join(self.game_path, "LimbusCompany_Data", "Lang", "config.json")
             
             if os.path.exists(json_target_path):
