@@ -138,7 +138,17 @@ class MainWindow(QMainWindow):
         
     def _init_ui(self):
         """初始化UI界面"""
-        ui_file = QFile("llc-tr-ui.ui")
+        # 获取UI文件的路径
+        if getattr(sys, 'frozen', False):
+            # 如果是打包后的可执行文件
+            base_path = sys._MEIPASS
+        else:
+            # 如果是开发环境
+            base_path = os.path.dirname(os.path.abspath(__file__))
+            
+        ui_path = os.path.join(base_path, "llc-tr-ui.ui")
+        ui_file = QFile(ui_path)
+        
         if not ui_file.open(QIODevice.ReadOnly):
             error_msg = f"无法打开UI文件 {ui_file.fileName()}: {ui_file.errorString()}"
             QMessageBox.critical(self, "错误", error_msg)
@@ -153,7 +163,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "错误", error_msg)
             sys.exit(1)
             
-        self.ui.setWindowTitle("Limbus Company本地化工具")
+        self.ui.setWindowTitle("Limbus Company临时本地化工具")
         
     def _init_variables(self):
         """初始化成员变量"""
@@ -161,6 +171,38 @@ class MainWindow(QMainWindow):
         self.game_path = ""
         self.download_thread = None
         self._is_downloading = False
+        self.install_config = None
+        
+    def download_install_config(self):
+        """下载安装配置文件"""
+        try:
+            self.logger.info("正在获取最新安装配置信息...")
+            config_url = "https://raw.githubusercontent.com/EveGlowLuna/LLC-TemporaryReplacer/main/install_info.json"
+            response = requests.get(config_url, timeout=10)
+            response.raise_for_status()
+            self.install_config = response.json()
+            self.logger.info("成功获取安装配置信息")
+            return True
+        except requests.exceptions.ConnectionError as e:
+            error_msg = "网络连接错误，无法获取安装配置"
+            self.show_error("更新失败", error_msg)
+            return False
+        except requests.exceptions.Timeout as e:
+            error_msg = "获取安装配置超时，请检查网络连接"
+            self.show_error("更新失败", error_msg)
+            return False
+        except requests.exceptions.RequestException as e:
+            error_msg = f"获取安装配置时发生错误: {str(e)}"
+            self.show_error("更新失败", error_msg)
+            return False
+        except json.JSONDecodeError as e:
+            error_msg = "安装配置文件格式错误"
+            self.show_error("更新失败", error_msg)
+            return False
+        except Exception as e:
+            error_msg = f"获取安装配置时发生未知错误: {str(e)}"
+            self.show_error("更新失败", error_msg)
+            return False
         
     def setup_ui(self):
         """设置UI控件"""
@@ -363,14 +405,29 @@ class MainWindow(QMainWindow):
             self.show_error("错误", "未选择游戏目录！")
             return
             
+        # 下载安装配置
+        if not self.download_install_config():
+            return
+            
+        # 检查并清理临时目录
+        temp_dir = os.path.join(os.getcwd(), "temp_extract")
+        if os.path.exists(temp_dir):
+            try:
+                shutil.rmtree(temp_dir)
+                self.logger.info("已清理旧的临时目录")
+            except Exception as e:
+                self.show_error("错误", f"清理临时目录失败: {str(e)}")
+                return
+            
         self.logger.info("开始安装...")
         self._is_downloading = True
         self.install_btn.setText("停止")
         self.progress_bar.setValue(0)
         
         # 启动下载线程
-        url = "https://download.zeroasso.top/files/0404Temp.zip"
-        save_path = os.path.join(os.getcwd(), "0404Temp.zip")
+        url = self.install_config.get('link')
+        file_name = self.install_config.get('file')
+        save_path = os.path.join(os.getcwd(), file_name)
         
         self.download_thread = DownloadThread(url, save_path, self.logger)
         self.download_thread.progress_updated.connect(self.update_progress)
@@ -417,32 +474,43 @@ class MainWindow(QMainWindow):
                 
             # 解压资源文件
             self.logger.info("开始解压资源文件...")
-            import zipfile
-            with zipfile.ZipFile(archive_path, 'r') as archive:
-                # 先提取所有文件到临时目录
-                temp_dir = os.path.join(os.getcwd(), "temp_extract")
-                archive.extractall(path=temp_dir)
+            archive_type = self.install_config.get('type', 'zip')
+            
+            if archive_type == 'zip':
+                import zipfile
+                with zipfile.ZipFile(archive_path, 'r') as archive:
+                    # 先提取所有文件到临时目录
+                    temp_dir = os.path.join(os.getcwd(), "temp_extract")
+                    archive.extractall(path=temp_dir)
+            elif archive_type == '7z':
+                with py7zr.SevenZipFile(archive_path, mode='r') as archive:
+                    # 先提取所有文件到临时目录
+                    temp_dir = os.path.join(os.getcwd(), "temp_extract")
+                    archive.extractall(path=temp_dir)
+            else:
+                raise Exception(f"不支持的压缩包格式: {archive_type}")
                 
-                # 找到源目录
-                source_path = os.path.join(temp_dir, "LimbusCompany_Data", "Lang", "LLC_CN")
-                
-                if os.path.exists(source_path):
-                    # 复制文件到目标目录
-                    for root, dirs, files in os.walk(source_path):
-                        relative_path = os.path.relpath(root, source_path)
-                        target_dir = os.path.join(target_path, relative_path)
-                        
-                        if not os.path.exists(target_dir):
-                            os.makedirs(target_dir)
-                            
-                        for file in files:
-                            src_file = os.path.join(root, file)
-                            dst_file = os.path.join(target_dir, file)
-                            shutil.copy2(src_file, dst_file)
+            # 找到源目录
+            absolute_path = self.install_config.get('absolutePath', '')
+            source_path = os.path.join(temp_dir, *absolute_path.split('/'))
+            
+            if os.path.exists(source_path):
+                # 复制文件到目标目录
+                for root, dirs, files in os.walk(source_path):
+                    relative_path = os.path.relpath(root, source_path)
+                    target_dir = os.path.join(target_path, relative_path)
                     
-                    self.logger.info("资源文件解压完成")
-                else:
-                    raise Exception("压缩包中找不到预期的目录结构")
+                    if not os.path.exists(target_dir):
+                        os.makedirs(target_dir)
+                        
+                    for file in files:
+                        src_file = os.path.join(root, file)
+                        dst_file = os.path.join(target_dir, file)
+                        shutil.copy2(src_file, dst_file)
+                
+                self.logger.info("资源文件解压完成")
+            else:
+                raise Exception("压缩包中找不到预期的目录结构")
                 
                 # 清理临时目录
                 shutil.rmtree(temp_dir)
@@ -480,12 +548,20 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self.show_error("错误", f"安装过程中发生错误: {str(e)}")
         finally:
-            # 清理下载的压缩文件
+            # 清理临时文件和目录
             try:
                 if os.path.exists(archive_path):
                     os.remove(archive_path)
+                    self.logger.info("已清理下载的压缩文件")
+                temp_dir = os.path.join(os.getcwd(), "temp_extract")
+                if os.path.exists(temp_dir):
+                    shutil.rmtree(temp_dir)
+                    self.logger.info("已清理临时目录")
             except Exception as e:
-                self.logger.error(f"删除临时文件失败: {str(e)}")
+                self.logger.error(f"清理临时文件失败: {str(e)}")
+            finally:
+                self._is_downloading = False
+                self.install_btn.setText("安装")
 
 class LogRedirector:
     """日志重定向器"""
