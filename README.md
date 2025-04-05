@@ -4,7 +4,7 @@
 ---
 ## 致谢/引用说明
 本项目的部分汉化内容基于以下作品：
-- [**LocalizeLimbusCompany** by LLC]("https://github.com/LocalizeLimbusCompany/LocalizeLimbusCompany")，采用 [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) 许可协议。
+- **[LocalizeLimbusCompany]("https://github.com/LocalizeLimbusCompany/LocalizeLimbusCompany")** by [LLC]("https://github.com/LocalizeLimbusCompany")，采用 [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) 许可协议。
 
 ## 项目简介
 LLC-TemporaryReplacer是一个用于解决零协汉化程序问题的临时替换工具。
