@@ -1,7 +1,11 @@
 {
-    "link":"https://api.zeroasso.top/v2/download/files?file_name=LLCCN-Font.7z",
-    "file":"LLCCN-Font.7z",
-    "type":"7z",
-    "absolutePath":"LimbusCompany_Data\\Lang\\LLC_zh-CN\\",
+    "font-link":"https://api.zeroasso.top/v2/download/files?file_name=LLCCN-Font.7z",
+    "content-link":"https://download.zeroasso.top/files/LimbusLocalize_latest.7z"
+    "font-file":"LLCCN-Font.7z",
+    "content-file":"LimbusLocalize_latest.7z",
+    "font-type":"7z",
+    "content-type":"7z",
+    "absolutePath-content":"LimbusCompany_Data\\Lang\\LLC_zh-CN\\",
+    "absolutePath-font":"LimbusCompany_Data\\Lang\\LLC_zh-CN\\Font"
     "name":"LLC_zh-CN"
 }
