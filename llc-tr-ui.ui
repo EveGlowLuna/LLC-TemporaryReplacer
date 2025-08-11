@@ -40,7 +40,7 @@
        </font>
       </property>
       <property name="text">
-       <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; color:#ff0000;&quot;&gt;LLC-TemporaryReplacer v1.5&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+       <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; color:#ff0000;&quot;&gt;LLC-TemporaryReplacer v1.7&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
       </property>
      </widget>
     </item>
@@ -411,7 +411,7 @@ li.checked::marker { content: &quot;\2612&quot;; }
            </font>
           </property>
           <property name="text">
-           <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-size:20pt;&quot;&gt;LLC-TemporaryReplacer Version 1.5&lt;/span&gt;&lt;br/&gt;&lt;a href=&quot;https://github.com/EveGlowLuna/LLC-TemporaryReplacer&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2da3fd;&quot;&gt;项目地址（点击进入）&lt;/span&gt;&lt;/a&gt;&lt;br/&gt;&lt;span style=&quot; font-size:8pt; color:#ff0000;&quot;&gt;IM GOING TO MAKE IT HAPPEN EVEN IF NO ONE USES IT!&lt;/span&gt;&lt;br/&gt;&lt;span style=&quot; font-size:14pt;&quot;&gt;脚本作者：EveGlowLuna（YangChen114514）&lt;/span&gt;&lt;br/&gt;&lt;span style=&quot; font-size:14pt;&quot;&gt;本程序将仅在LLC官方无时间完成且LLC工具无法使用时开始维护，以一个正式版发布为终止。&lt;/span&gt;&lt;/p&gt;&lt;p&gt;&lt;span style=&quot; font-size:14pt;&quot;&gt;好消息！该程序即将进行完整重构（如果零协仍未发布新版本工具箱）&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+           <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;&lt;span style=&quot; font-size:20pt;&quot;&gt;LLC-TemporaryReplacer Version 1.7&lt;/span&gt;&lt;br/&gt;&lt;a href=&quot;https://github.com/EveGlowLuna/LLC-TemporaryReplacer&quot;&gt;&lt;span style=&quot; text-decoration: underline; color:#2da3fd;&quot;&gt;项目地址（点击进入）&lt;/span&gt;&lt;/a&gt;&lt;br/&gt;&lt;span style=&quot; font-size:8pt; color:#ff0000;&quot;&gt;IM GOING TO MAKE IT HAPPEN EVEN IF NO ONE USES IT!&lt;/span&gt;&lt;br/&gt;&lt;span style=&quot; font-size:14pt;&quot;&gt;脚本作者：EveGlowLuna（YangChen114514）&lt;/span&gt;&lt;br/&gt;&lt;span style=&quot; font-size:14pt;&quot;&gt;本程序将仅在LLC官方无时间完成且LLC工具无法使用时开始维护，以一个正式版发布为终止。&lt;/span&gt;&lt;/p&gt;&lt;p&gt;&lt;span style=&quot; font-size:14pt;&quot;&gt;好消息！该程序即将进行完整重构（如果零协仍未发布新版本工具箱）&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
           </property>
           <property name="wordWrap">
            <bool>true</bool>
@@ -498,6 +498,50 @@ li.checked::marker { content: &quot;\2612&quot;; }
                 </property>
                 <property name="text">
                  <string>启用</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QWidget" name="widget_proxy_input" native="true">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <layout class="QHBoxLayout" name="horizontalLayout_proxy">
+              <item>
+               <widget class="QLabel" name="label_proxy_url">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+                <property name="font">
+                 <font>
+                  <pointsize>11</pointsize>
+                  <bold>false</bold>
+                 </font>
+                </property>
+                <property name="text">
+                 <string>自定义代理地址:</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLineEdit" name="custom_proxy_edit">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+                <property name="placeholderText">
+                 <string>例如: https://gh-proxy.com</string>
                 </property>
                </widget>
               </item>

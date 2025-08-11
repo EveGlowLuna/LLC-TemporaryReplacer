@@ -1,1 +1,1 @@
-pyinstaller --noconsole --add-data "llc-tr-ui.ui;." --version-file version.txt LocalizeLimbusCompany-TR.py
+pyinstaller --noconsole --add-data "llc-tr-ui.ui;." --add-data "tool;tool" --version-file version.txt LocalizeLimbusCompany-TR.py

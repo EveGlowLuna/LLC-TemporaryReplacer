@@ -23,7 +23,6 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import requests
-import py7zr
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QFileDialog,
     QPushButton, QLabel, QTextEdit, QProgressBar,
@@ -233,6 +232,8 @@ class MainWindow(QMainWindow):
         self._is_downloading = False
         self.install_config = None
         self.use_mirror = False
+        self.font_path = "" # 初始化font_path
+        self.custom_proxy_url = "" # 初始化自定义代理URL
         
     def setup_ui(self):
         """设置UI控件
@@ -318,6 +319,12 @@ class MainWindow(QMainWindow):
                     if 'use-mirror' in paths:
                         self.use_mirror = paths['use-mirror']
                         self.use_mirror_checkbox.setChecked(self.use_mirror)
+                    
+                    # 加载自定义代理URL
+                    if 'custom-proxy-url' in paths:
+                        self.custom_proxy_url = paths['custom-proxy-url']
+                        # 假设有一个QTextEdit或QLineEdit用于显示和编辑自定义代理URL
+                        # self.custom_proxy_edit.setText(self.custom_proxy_url) # 这部分UI修改将在下一步进行
                             
         except Exception as e:
             self.logger.error(f'加载配置文件失败: {str(e)}')
@@ -331,7 +338,8 @@ class MainWindow(QMainWindow):
             paths = {
                 'game_path': self.game_path if self.game_path else '',
                 'font_path': self.font_path if self.font_path else '',
-                'use-mirror': self.use_mirror
+                'use-mirror': self.use_mirror,
+                'custom-proxy-url': self.custom_proxy_url if self.custom_proxy_url else ''
             }
             with open('config.json', 'w', encoding='utf-8') as f:
                 json.dump(paths, f, ensure_ascii=False, indent=4)
@@ -531,8 +539,24 @@ class MainWindow(QMainWindow):
         while retry_count < max_retries:
             try:
                 self.logger.info(f"正在获取最新安装配置信息...{'' if retry_count == 0 else f'(第{retry_count+1}次尝试)'}")
-                config_url = "https://gh-proxy.com/raw.gitmirror.com/EveGlowLuna/LLC-TemporaryReplacer/main/install_info.json"
-                self.logger.info("使用镜像站下载配置。")
+                github_raw_url = "https://raw.githubusercontent.com/EveGlowLuna/LLC-TemporaryReplacer/refs/heads/main/install_info.json"
+                config_url = github_raw_url
+
+                if self.use_mirror:
+                    if self.custom_proxy_url:
+                        # 使用用户自定义代理
+                        parsed_github_url = urlparse(github_raw_url)
+                        # 确保自定义代理URL以'/'结尾，如果不是，则添加
+                        base_proxy_url = self.custom_proxy_url.rstrip('/')
+                        # 拼接代理URL和GitHub路径
+                        config_url = f"{base_proxy_url}/{parsed_github_url.netloc}{parsed_github_url.path}"
+                        self.logger.info(f"使用自定义代理下载配置: {config_url}")
+                    else:
+                        # 使用默认镜像站
+                        config_url = "https://gh-proxy.com/raw.githubusercontent.com/EveGlowLuna/LLC-TemporaryReplacer/refs/heads/main/install_info.json"
+                        self.logger.info("使用默认镜像站下载配置。")
+                else:
+                    self.logger.info("不使用镜像站，直接从GitHub下载配置。")
                 
                 # 增加超时时间，connect=5秒，read=30秒
                 response = requests.get(
@@ -693,10 +717,27 @@ class MainWindow(QMainWindow):
                     temp_dir = os.path.join(os.getcwd(), "temp_extract")
                     archive.extractall(path=temp_dir)
             elif archive_type == '7z':
-                with py7zr.SevenZipFile(archive_path, mode='r') as archive:
-                    # 先提取所有文件到临时目录
-                    temp_dir = os.path.join(os.getcwd(), "temp_extract")
-                    archive.extractall(path=temp_dir)
+                # 使用7z.exe解压
+                seven_zip_exe = os.path.join(base_path, "tool", "7z.exe")
+                if not os.path.exists(seven_zip_exe):
+                    raise Exception(f"7z.exe not found at {seven_zip_exe}")
+                
+                temp_dir = os.path.join(os.getcwd(), "temp_extract")
+                if not os.path.exists(temp_dir):
+                    os.makedirs(temp_dir)
+
+                command = [seven_zip_exe, 'x', archive_path, f'-o{temp_dir}', '-y']
+                self.logger.info(f"执行解压命令: {' '.join(command)}")
+                
+                import subprocess
+                process = subprocess.run(command, capture_output=True, text=True, encoding='utf-8')
+                
+                if process.returncode != 0:
+                    self.logger.error(f"7z解压失败: {process.stderr}")
+                    raise Exception(f"7z解压失败: {process.stderr}")
+                else:
+                    self.logger.info("7z解压成功")
+                    self.logger.debug(process.stdout)
             else:
                 raise Exception(f"不支持的压缩包格式: {archive_type}")
                 
