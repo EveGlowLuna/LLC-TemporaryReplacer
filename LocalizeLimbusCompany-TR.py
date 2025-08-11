@@ -18,6 +18,7 @@ import os
 import json
 import logging
 import shutil
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
@@ -196,13 +197,13 @@ class MainWindow(QMainWindow):
         # 获取UI文件的路径
         if getattr(sys, 'frozen', False):
             # 如果是打包后的可执行文件
-            base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+            self.base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
         else:
             # 如果是开发环境
-            base_path = os.path.dirname(os.path.abspath(__file__))
+            self.base_path = os.path.dirname(os.path.abspath(__file__))
             
         # 加载主界面
-        ui_path = os.path.join(base_path, "llc-tr-ui.ui")
+        ui_path = os.path.join(self.base_path, "llc-tr-ui.ui")
         ui_file = QFile(ui_path)
         
         if not ui_file.open(QIODevice.OpenModeFlag.ReadOnly):
@@ -567,7 +568,13 @@ class MainWindow(QMainWindow):
                     }
                 )
                 response.raise_for_status()
-                self.install_config = response.json()
+                try:
+                    self.install_config = response.json()
+                except json.JSONDecodeError as e:
+                    error_msg = f"安装配置文件格式错误: {str(e)}"
+                    self.logger.error(error_msg)
+                    self.show_error("更新失败", error_msg)
+                    return False
                 self.name = self.install_config.get('name', '')
                 if not self.name:
                     error_msg = "安装配置中缺少name字段"
@@ -656,18 +663,30 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(0)
             
         # 启动下载线程
-        url = self.install_config.get('link')
+        url = self.install_config.get('content-link')
                 
-        file_name = self.install_config.get('file')
+        file_name = self.install_config.get('content-file')
         
         save_path = os.path.join(os.getcwd(), file_name)
 
             
+        # 下载资源包
         self.download_thread = DownloadThread(url, save_path, self.logger)
         self.download_thread.progress_updated.connect(self.update_progress)
         self.download_thread.download_finished.connect(self.on_download_finished)
         self.download_thread.download_error.connect(self.on_download_error)
         self.download_thread.start()
+
+        # 下载字体包
+        font_url = self.install_config.get('font-link')
+        font_file = self.install_config.get('font-file')
+        if font_url and font_file:
+            font_save_path = os.path.join(os.getcwd(), font_file)
+            self.font_download_thread = DownloadThread(font_url, font_save_path, self.logger)
+            self.font_download_thread.progress_updated.connect(self.update_progress)
+            self.font_download_thread.download_finished.connect(self.on_font_download_finished)
+            self.font_download_thread.download_error.connect(self.on_download_error)
+            self.font_download_thread.start()
         
     def stop_installation(self):
         """停止安装过程"""
@@ -680,12 +699,74 @@ class MainWindow(QMainWindow):
         self.logger.info("下载已停止")
         
     def on_download_finished(self, file_path):
+        if file_path.endswith(self.install_config.get('font-file')):
+            self.on_font_download_finished(file_path)
+            return
         """下载完成处理"""
         self._is_downloading = False
         self.install_btn.setText("安装")
         self.logger.info(f"文件下载完成: {file_path}")
         self.post_download_operations(file_path)
         
+    def on_font_download_finished(self, font_path):
+        try:
+            # 定义目标目录和临时目录
+            temp_dir = os.path.join(os.getcwd(), "temp_font_extract")
+            lang_dir = os.path.join(self.game_path, "LimbusCompany_Data", "Lang", "LLC_zh-CN")
+            font_target_dir = os.path.join(lang_dir, "Font")
+
+            # 确保临时目录存在并清空
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+            os.makedirs(temp_dir)
+
+            # 解压字体文件
+            archive_type = self.install_config.get('font-type', '7z')
+            if archive_type == '7z':
+                seven_zip_exe = os.path.join(self.base_path, "tool", "7z.exe")
+                command = [seven_zip_exe, 'x', font_path, f'-o{temp_dir}', '-y']
+                self.logger.info("开始解压字体文件...")
+                
+                process = subprocess.run(command, capture_output=True, text=True, encoding='utf-8')
+                # 将7z的输出以DEBUG级别记录到终端
+                print(f"\n[DEBUG] 7z output:\n{process.stdout}", file=sys.__stdout__)
+                
+                if process.returncode != 0:
+                    raise Exception(f"7z解压失败: {process.stderr}")
+                self.logger.info("字体文件解压完成")
+            
+            # 检查解压出来的Font文件夹
+            source_font_dir = os.path.join(temp_dir, "Font")
+            self.logger.info(f"查找Font文件夹: {source_font_dir}")
+            # 新增：如果未找到Font文件夹，尝试查找所有子目录
+            if not os.path.exists(source_font_dir):
+                # 遍历临时目录，查找名为Font的文件夹
+                found = False
+                for root, dirs, files in os.walk(temp_dir):
+                    if "Font" in dirs:
+                        source_font_dir = os.path.join(root, "Font")
+                        self.logger.info(f"在{root}找到Font文件夹: {source_font_dir}")
+                        found = True
+                        break
+                if not found:
+                    raise Exception(f"解压后未找到Font文件夹: {temp_dir}")
+            # 确保目标目录存在且是空的，以实现“整体移动”的语义
+            if os.path.exists(font_target_dir):
+                shutil.rmtree(font_target_dir)
+                self.logger.info("已清理旧的Font目录")
+            # 直接移动Font文件夹
+            self.logger.info(f"开始移动Font文件夹到目标位置...")
+            shutil.move(source_font_dir, font_target_dir)
+            self.logger.info("Font文件夹移动完成")
+
+            shutil.rmtree(temp_dir)
+        except Exception as e:
+            self.show_error("错误", f"字体安装过程中发生错误: {str(e)}")
+        finally:
+            if os.path.exists(font_path):
+                os.remove(font_path)
+                self.logger.info("已清理下载的字体压缩文件")
+
     def on_download_error(self, error_msg):
         """下载错误处理"""
         self._is_downloading = False
@@ -698,33 +779,30 @@ class MainWindow(QMainWindow):
             self.progress_bar.setValue(progress)
             
     def post_download_operations(self, archive_path):
+        if archive_path.endswith(self.install_config.get('font-file')):
+            self.logger.info("字体文件下载完成，开始解压...")
+            self.extract_font(archive_path)
+            return
         """下载后处理操作"""
         try:
-            target_path = os.path.join(self.game_path, "LimbusCompany_Data", "Lang", self.name)
-                
-        # 创建目标目录
-            if not os.path.exists(target_path):
-                os.makedirs(target_path)
-                
             # 解压资源文件
             self.logger.info("开始解压资源文件...")
-            archive_type = self.install_config.get('type', 'zip')
+            archive_type = self.install_config.get('content-type', 'zip')
             
+            # 使用临时目录
+            temp_dir = os.path.join(os.getcwd(), "temp_extract")
+            if not os.path.exists(temp_dir):
+                os.makedirs(temp_dir)
+
             if archive_type == 'zip':
                 import zipfile
                 with zipfile.ZipFile(archive_path, 'r') as archive:
-                    # 先提取所有文件到临时目录
-                    temp_dir = os.path.join(os.getcwd(), "temp_extract")
                     archive.extractall(path=temp_dir)
             elif archive_type == '7z':
                 # 使用7z.exe解压
-                seven_zip_exe = os.path.join(base_path, "tool", "7z.exe")
+                seven_zip_exe = os.path.join(self.base_path, "tool", "7z.exe")
                 if not os.path.exists(seven_zip_exe):
                     raise Exception(f"7z.exe not found at {seven_zip_exe}")
-                
-                temp_dir = os.path.join(os.getcwd(), "temp_extract")
-                if not os.path.exists(temp_dir):
-                    os.makedirs(temp_dir)
 
                 command = [seven_zip_exe, 'x', archive_path, f'-o{temp_dir}', '-y']
                 self.logger.info(f"执行解压命令: {' '.join(command)}")
@@ -740,28 +818,38 @@ class MainWindow(QMainWindow):
                     self.logger.debug(process.stdout)
             else:
                 raise Exception(f"不支持的压缩包格式: {archive_type}")
-                
-            # 找到源目录
-            absolute_path = self.install_config.get('absolutePath', '')
-            source_path = os.path.join(temp_dir, *absolute_path.split('/'))
+
+            # 检查解压后的文件结构
+            data_folder = os.path.join(temp_dir, "LimbusCompany_Data")
+            if not os.path.exists(data_folder):
+                raise Exception("压缩包中找不到预期的LimbusCompany_Data目录")
             
-            if os.path.exists(source_path):
-                # 复制文件到目标目录
-                for root, dirs, files in os.walk(source_path):
-                    relative_path = os.path.relpath(root, source_path)
-                    target_dir = os.path.join(target_path, relative_path)
-                    
-                    if not os.path.exists(target_dir):
-                        os.makedirs(target_dir)
-                        
-                    for file in files:
-                        src_file = os.path.join(root, file)
-                        dst_file = os.path.join(target_dir, file)
-                        shutil.copy2(src_file, dst_file)
-                
-                self.logger.info("资源文件解压完成")
-            else:
-                raise Exception("压缩包中找不到预期的目录结构")
+            # 检查目标目录是否已存在本地化文件夹
+            target_lang_dir = os.path.join(self.game_path, "LimbusCompany_Data", "Lang", "LLC_zh-CN")
+            if os.path.exists(target_lang_dir):
+                self.logger.info("删除旧的本地化文件夹...")
+                shutil.rmtree(target_lang_dir)
+
+            # 直接复制需要的文件夹
+            source_zh_cn_dir = os.path.join(temp_dir, "LimbusCompany_Data", "Lang", "LLC_zh-CN")
+            target_zh_cn_dir = os.path.join(self.game_path, "LimbusCompany_Data", "Lang", "LLC_zh-CN")
+            
+            if not os.path.exists(source_zh_cn_dir):
+                raise Exception("压缩包中找不到LLC_zh-CN目录")
+            
+            # 如果目标目录存在，先删除
+            if os.path.exists(target_zh_cn_dir):
+                self.logger.info("删除旧的本地化文件夹...")
+                shutil.rmtree(target_zh_cn_dir)
+            
+            # 确保目标Lang目录存在
+            os.makedirs(os.path.dirname(target_zh_cn_dir), exist_ok=True)
+            
+            # 复制新的本地化文件夹
+            self.logger.info("正在复制本地化文件...")
+            shutil.copytree(source_zh_cn_dir, target_zh_cn_dir)
+            
+            self.logger.info("资源文件复制完成")
             
             # 清理临时目录
             shutil.rmtree(temp_dir)
@@ -785,7 +873,7 @@ class MainWindow(QMainWindow):
             
             # 处理字体文件
             if self.font_path and self.font_path != "SourceHanSansCN-Normal.otf":
-                font_target_path = os.path.join(target_path, "Font")
+                font_target_path = os.path.join(self.game_path, "LimbusCompany_Data", "Lang", "LLC_zh-CN", "Font")
                 if os.path.exists(font_target_path):
                     shutil.rmtree(font_target_path)
                 os.makedirs(font_target_path)
@@ -861,7 +949,9 @@ class LoggingHandler(logging.Handler):
     def emit(self, record):
         """发送日志记录"""
         msg = self.format(record)
+        # 同时输出到UI和终端
         self.redirector.append_text(msg)
+        print(msg, file=sys.__stdout__)
 
 
 def main():
