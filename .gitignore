@@ -14,3 +14,11 @@ dist/
 # temp
 temp_font_extract/
 temp_extract/
+
+# venv
+venv/
+.venv/
+
+# IDE
+.idea/
+.vscode/
